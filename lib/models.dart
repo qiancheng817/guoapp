@@ -53,7 +53,12 @@ class SourceSite {
   ];
   static const knownValues = [...primaryValues, ...restrictedValues];
   static const allValues = [...primaryValues, ...restrictedValues];
-  static const values = allSourcesEnabled ? knownValues : [hongguo];
+  static final List<SourceSite> values = allSourcesEnabled
+      ? [
+          for (final site in knownValues)
+            if (!hongguoExcluded || site.id != hongguo.id) site,
+        ]
+      : [hongguo];
   static bool isAvailable(String id) => values.any((site) => site.id == id);
   static bool isKnown(String id) => allValues.any((site) => site.id == id);
   static bool isPrimary(String id) =>

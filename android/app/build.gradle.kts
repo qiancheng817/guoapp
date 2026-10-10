@@ -13,6 +13,7 @@ val dartDefines = providers.gradleProperty("dart-defines").orNull.orEmpty()
         decoded.substringBefore("=") to decoded.substringAfter("=", "")
     }
 val allSources = dartDefines["ALL_SOURCES"] == "true"
+val excludeHongguo = dartDefines["EXCLUDE_HONGGUO"] == "true"
 
 val releaseKey = rootProject.file("key.properties")
 val releaseProperties = Properties()
@@ -46,6 +47,9 @@ android {
         versionName = flutter.versionName
         manifestPlaceholders["appLabel"] = if (allSources) "真果鉴" else "红果鉴"
         manifestPlaceholders["appBanner"] = if (allSources) "@drawable/tv_banner_all_sources" else "@drawable/tv_banner"
+        if (excludeHongguo) {
+            applicationIdSuffix = ".tv"
+        }
     }
 
     signingConfigs {

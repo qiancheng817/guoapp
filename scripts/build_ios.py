@@ -97,7 +97,7 @@ def main():
     parser.add_argument('--export-options', type=Path, help='使用自己的 Xcode 签名配置导出 IPA')
     add_variant_argument(parser)
     options = parser.parse_args()
-    variant = BuildVariant(options.all_sources)
+    variant = BuildVariant(options.all_sources, options.exclude_hongguo)
     build_core(options.simulator, variant)
     if options.core_only:
         return

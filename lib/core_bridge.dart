@@ -639,7 +639,8 @@ class NativeRepository extends AppRepository {
       'action': 'initialize',
       'directory': directory.path,
     });
-    if (build['allSources'] != allSourcesEnabled) {
+    if (build['allSources'] != allSourcesEnabled ||
+        (build['excludeHongguo'] == true) != hongguoExcluded) {
       throw AppFailure('应用与原生核心的站源版本不一致，请使用完整安装包重新安装');
     }
     if (!background) await BackgroundDownloads.prepare();

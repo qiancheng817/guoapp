@@ -1,0 +1,88 @@
+name: Build Android TV package
+
+# 仅构建安卓电视端「真果鉴」：全部站源（排除红果），独立包名 com.duanju.duanju_app.tv。
+# 手动触发；APK 使用 debug 签名（仓库未配置发布证书），可直接通过 ADB / U 盘侧载到电视。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-tv-build
+
+env:
+  GOPROXY: https://proxy.golang.org,direct
+  GOSUMDB: sum.golang.org
+
+jobs:
+  android-tv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.4'
+          channel: stable
+          cache: true
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36"
+          accept-android-sdk-licenses: true
+      - run: sdkmanager 'ndk;28.2.13676358'
+      - name: Build 真果鉴 Android TV packages
+        run: python scripts/build_android.py --all-sources --exclude-hongguo
+      - name: List built APKs
+        run: ls -lh dist/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zhenguojian-tv-android
+          path: dist/android/*.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n1)
+          tag="zhenguojian-tv-v${version//+/-}"
+          echo "version=$version tag=$tag"
+          cat > tv-notes.md <<EOF
+          # 真果鉴 · 安卓电视端 ${version}
+
+          包含除红果以外的全部站源（韩小圈、鬼片、青空、黄豆、剧果、野果、帝果、黄果视频 / AI / 旧版）。
+
+          安装与适配：
+          - 已适配 Android TV：Leanback 桌面图标与横幅、遥控器方向键操控、横屏 16:9、电视播放控件
+          - 包名 com.duanju.duanju_app.tv，可与手机版红果鉴 / 真果鉴共存
+          - 支持 Android 8.0 及以上
+          - debug 签名（仓库未配置发布证书），通过 ADB 或 U 盘侧载安装
+
+          APK 架构选择：
+          - *-arm64-v8a.apk：较新的电视盒子 / 电视（推荐优先尝试）
+          - *-armeabi-v7a.apk：较老的电视盒子
+          - *-x86_64.apk：x86 模拟器
+          EOF
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/android/*.apk --clobber
+          else
+            gh release create "$tag" dist/android/*.apk \
+              --target "$GITHUB_SHA" \
+              --title "真果鉴 安卓电视端 ${version}" \
+              --notes-file tv-notes.md \
+              --latest=false
+          fi

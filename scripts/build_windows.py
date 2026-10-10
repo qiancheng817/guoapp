@@ -11,7 +11,7 @@ root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 add_variant_argument(parser)
 options = parser.parse_args()
-variant = BuildVariant(options.all_sources)
+variant = BuildVariant(options.all_sources, options.exclude_hongguo)
 env = os.environ.copy()
 env.setdefault('GOPROXY', 'https://goproxy.cn,direct')
 env.setdefault('GOSUMDB', 'off')

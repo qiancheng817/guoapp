@@ -1,7 +1,8 @@
 name: Build Android TV package
 
-# 仅构建安卓电视端「真果鉴」：全部站源（排除红果），独立包名 com.duanju.duanju_app.tv。
-# 手动触发；APK 使用 debug 签名（仓库未配置发布证书），可直接通过 ADB / U 盘侧载到电视。
+# 构建安卓电视端「真果鉴」：全部站源（排除红果），独立包名 com.duanju.duanju_app.tv。
+# 手动触发。APK 使用仓库专用固定发布证书签名（secrets.ANDROID_TV_*），
+# 同一证书跨版本稳定，可直接覆盖升级；并额外产出 arm/arm64 通用包（universal）。
 on:
   workflow_dispatch:
 
@@ -43,8 +44,47 @@ jobs:
           packages: "platforms;android-36"
           accept-android-sdk-licenses: true
       - run: sdkmanager 'ndk;28.2.13676358'
+      - name: Configure Android TV release signing
+        env:
+          ANDROID_TV_KEYSTORE_BASE64: ${{ secrets.ANDROID_TV_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ANDROID_TV_KEYSTORE_BASE64" ]; then
+            echo "未配置电视端签名 Secrets（ANDROID_TV_KEYSTORE_BASE64），拒绝发布。" >&2
+            exit 1
+          fi
+          printf '%s' "$ANDROID_TV_KEYSTORE_BASE64" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/tv-release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/tv-release.jks" >> "$GITHUB_ENV"
       - name: Build 真果鉴 Android TV packages
-        run: python scripts/build_android.py --all-sources --exclude-hongguo
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_TV_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_TV_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_TV_KEY_PASSWORD }}
+        run: python scripts/build_android.py --all-sources --exclude-hongguo --universal
+      - name: Verify APK signing certificate
+        env:
+          ANDROID_TV_CERT_SHA256: ${{ vars.ANDROID_TV_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          expected=$(printf '%s' "$ANDROID_TV_CERT_SHA256" | tr -d ': ' | tr '[:upper:]' '[:lower:]')
+          if [ -z "$expected" ]; then
+            echo "未设置仓库变量 ANDROID_TV_CERT_SHA256，无法确认发布证书。" >&2
+            exit 1
+          fi
+          apksigner=$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f 2>/dev/null | sort | tail -n1 || true)
+          if [ -z "$apksigner" ]; then
+            sdkmanager 'build-tools;35.0.0' >/dev/null
+            apksigner=$(find "${ANDROID_HOME}/build-tools" -name apksigner -type f | sort | tail -n1)
+          fi
+          for apk in dist/android/*.apk; do
+            echo "== $(basename "$apk")"
+            output=$("$apksigner" verify --print-certs "$apk" 2>&1 || true)
+            printf '%s\n' "$output"
+            if ! printf '%s' "$output" | tr -d ':' | tr '[:upper:]' '[:lower:]' | grep -q "$expected"; then
+              echo "APK 签名证书与电视端发布证书不一致，已终止。" >&2
+              exit 1
+            fi
+          done
       - name: List built APKs
         run: ls -lh dist/android
       - uses: actions/upload-artifact@v4
@@ -67,14 +107,16 @@ jobs:
           包含除红果以外的全部站源（韩小圈、鬼片、青空、黄豆、剧果、野果、帝果、黄果视频 / AI / 旧版）。
 
           安装与适配：
+          - 不确定电视架构或安装分包报错时，优先下载 **universal 通用包**，适配 arm64 / arm 全系列电视盒子
           - 已适配 Android TV：Leanback 桌面图标与横幅、遥控器方向键操控、横屏 16:9、电视播放控件
           - 包名 com.duanju.duanju_app.tv，可与手机版红果鉴 / 真果鉴共存
           - 支持 Android 8.0 及以上
-          - debug 签名（仓库未配置发布证书），通过 ADB 或 U 盘侧载安装
+          - 使用固定发布证书签名，后续版本可直接覆盖安装（如曾安装其他证书的同名旧包，请先卸载）
 
           APK 架构选择：
-          - *-arm64-v8a.apk：较新的电视盒子 / 电视（推荐优先尝试）
-          - *-armeabi-v7a.apk：较老的电视盒子
+          - *-universal.apk：通用包，任何 arm / arm64 电视均可安装（体积较大，推荐首选）
+          - *-arm64-v8a.apk：较新的电视盒子 / 电视
+          - *-armeabi-v7a.apk：较老的 32 位电视盒子
           - *-x86_64.apk：x86 模拟器
           EOF
           if gh release view "$tag" >/dev/null 2>&1; then

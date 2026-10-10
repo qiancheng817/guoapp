@@ -10,6 +10,7 @@ root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--platform', choices=['android', 'windows'], required=True)
 parser.add_argument('--abi', action='append', choices=['arm64-v8a', 'armeabi-v7a', 'x86_64'])
+parser.add_argument('--universal', action='store_true', help='打包 arm / arm64 通用 APK')
 add_variant_argument(parser)
 options = parser.parse_args()
 variant = BuildVariant(options.all_sources, options.exclude_hongguo)
@@ -22,20 +23,33 @@ output.mkdir(parents=True, exist_ok=True)
 artifacts = []
 
 if options.platform == 'android':
-    for abi in options.abi or ['arm64-v8a', 'armeabi-v7a', 'x86_64']:
-        source = root / 'build' / 'app' / 'outputs' / 'flutter-apk' / f'app-{abi}-release.apk'
-        if not source.is_file():
-            raise SystemExit('缺少 APK：' + str(source))
-        with zipfile.ZipFile(source) as archive:
+    def verify_native_libs(apk, abis):
+        with zipfile.ZipFile(apk) as archive:
             names = set(archive.namelist())
-            required = [f'lib/{abi}/{library}' for library in
+            required = [f'lib/{abi}/{library}'
+                        for abi in abis for library in
                         ['libduanju_core.so', 'libflutter.so', 'libapp.so', 'libmpv.so', 'libffmpegkit.so']]
             missing = set(required) - names
             if missing:
                 raise SystemExit('APK 缺少原生库：' + ', '.join(sorted(missing)))
-        target = output / f'{variant.slug}-{version}-{abi}.apk'
+
+    if options.universal:
+        source = root / 'build' / 'app' / 'outputs' / 'flutter-apk' / 'app-release.apk'
+        if not source.is_file():
+            raise SystemExit('缺少 APK：' + str(source))
+        verify_native_libs(source, ['arm64-v8a', 'armeabi-v7a'])
+        target = output / f'{variant.slug}-{version}-universal.apk'
         shutil.copy2(source, target)
         artifacts.append(target)
+    else:
+        for abi in options.abi or ['arm64-v8a', 'armeabi-v7a', 'x86_64']:
+            source = root / 'build' / 'app' / 'outputs' / 'flutter-apk' / f'app-{abi}-release.apk'
+            if not source.is_file():
+                raise SystemExit('缺少 APK：' + str(source))
+            verify_native_libs(source, [abi])
+            target = output / f'{variant.slug}-{version}-{abi}.apk'
+            shutil.copy2(source, target)
+            artifacts.append(target)
 else:
     bundle = root / 'build' / 'windows' / 'x64' / 'runner' / 'Release'
     required = ['zhenguojian.exe', 'duanju_core.dll', 'flutter_windows.dll', 'libffmpegkit.dll',

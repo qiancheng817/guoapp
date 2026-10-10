@@ -11,6 +11,8 @@ from app_build import BuildVariant, add_variant_argument
 root = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument('--abi', action='append', choices=['arm64-v8a', 'armeabi-v7a', 'x86_64'])
+parser.add_argument('--universal', action='store_true',
+                    help='同时构建包含 arm64-v8a 与 armeabi-v7a 的通用 APK，电视端安装失败时优先使用')
 add_variant_argument(parser)
 options = parser.parse_args()
 variant = BuildVariant(options.all_sources, options.exclude_hongguo)
@@ -34,3 +36,10 @@ if options.abi:
 subprocess.run(build_args, cwd=root, env=env, check=True)
 subprocess.run([sys.executable, str(root / 'scripts' / 'package_release.py'), '--platform', 'android', *abi_args, *variant.arguments],
                cwd=root, env=env, check=True)
+if options.universal:
+    universal_args = [flutter, 'build', 'apk', '--release', '--no-pub',
+                      '--target-platform', 'android-arm,android-arm64', *variant.flutter_arguments]
+    subprocess.run(universal_args, cwd=root, env=env, check=True)
+    subprocess.run([sys.executable, str(root / 'scripts' / 'package_release.py'), '--platform', 'android',
+                    '--universal', *variant.arguments],
+                   cwd=root, env=env, check=True)
